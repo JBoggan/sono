@@ -2,12 +2,8 @@ import numpy as np
 import random
 from typing import Tuple, List
 
-# Import the Knot class - assuming it's in the same directory for now
-# If running as part of a package, adjust the import path accordingly
-try:
-    from .knot import Knot
-except ImportError:
-    from knot import Knot
+# Use relative import
+from .knot import Knot
 
 def control_leashes(knot: Knot) -> Tuple[float, float]:
     """

@@ -1,10 +1,8 @@
 import numpy as np
 from typing import Optional
 
-try:
-    from .knot import Knot
-except ImportError:
-    from knot import Knot
+# Use relative import
+from .knot import Knot
 
 # --- Crossing Number (ACN Placeholder) ---
 

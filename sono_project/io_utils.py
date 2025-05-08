@@ -1,7 +1,8 @@
 import numpy as np
 import os
 
-from knot import Knot # Assuming knot.py is in the same directory or accessible
+# Use relative import assuming it's part of the sono_project package
+from .knot import Knot
 
 def read_knot_from_file(filepath: str) -> np.ndarray:
     """

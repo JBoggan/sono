@@ -18,6 +18,9 @@ from sono_project.knot_properties import (
     calculate_crossing_number_xy,
     calculate_writhe
 )
+# Import I/O and visualization
+from sono_project.io_utils import write_knot_to_file
+from sono_project.visualization import plot_knot
 
 
 def run_sono_simplified(
@@ -49,10 +52,10 @@ def run_sono_simplified(
             knot.target_leash_length *= scaling_factor
 
         if iteration % (max_iterations // 10) == 0:
-             lambda_val = knot.length / knot.diameter
+             lambda_val = knot.length / knot.diameter if knot.diameter > 0 else float('inf') # Add check
              print(f"Iter {iteration}: L/D={lambda_val:.3f}, AvgOv={avg_ov:.2e}")
 
-    final_lambda = knot.length / knot.diameter
+    final_lambda = knot.length / knot.diameter if knot.diameter > 0 else float('inf') # Add check
     print(f"Final state: {knot}, L/D={final_lambda:.3f}")
 
 
@@ -62,6 +65,14 @@ def test_untangle_simple_loop():
     Start with a circle that has a small twist/loop added.
     Expect it to relax to a near-perfect circle with ACN/Wr near 0.
     """
+    # --- Test Setup ---
+    output_dir = os.path.join(project_root, "test_outputs")
+    initial_coords_filename = os.path.join(output_dir, "untangle_initial_coords.txt")
+    initial_plot_filename = os.path.join(output_dir, "untangle_initial_plot.png")
+    final_coords_filename = os.path.join(output_dir, "untangle_final_coords.txt")
+    final_plot_filename = os.path.join(output_dir, "untangle_final_plot.png")
+    os.makedirs(output_dir, exist_ok=True) # Ensure directory exists
+
     # Create a near-circle with a small loop
     n_points = 50
     radius = 5.0
@@ -87,6 +98,14 @@ def test_untangle_simple_loop():
 
     knot = Knot(coordinates=initial_coords, diameter=knot_diameter)
 
+    # --- Save Initial State --- 
+    print(f"\nSaving initial state for untangling test...")
+    try:
+        write_knot_to_file(knot, initial_coords_filename)
+        plot_knot(knot, title="Untangling Test - Initial State", save_path=initial_plot_filename, show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error during initial output saving for untangling test: {e}")
+
     initial_acn = calculate_crossing_number_xy(knot)
     initial_wr = calculate_writhe(knot)
     initial_L = knot.length
@@ -95,7 +114,7 @@ def test_untangle_simple_loop():
 
     # Determine initial 'skipped' based on average leash length
     l_avg = knot.length / knot.num_nodes
-    skipped_val = max(1, round(np.pi * knot.diameter / (2 * l_avg)))
+    skipped_val = max(1, round(np.pi * knot.diameter / (2 * l_avg))) if l_avg > 1e-9 else 3
     print(f"Using skipped={skipped_val}")
 
     # Run the simplified SONO process
@@ -131,4 +150,13 @@ def test_untangle_simple_loop():
     radius_variance = np.var(distances)
     print(f"Variance of node distance from center: {radius_variance:.4f}")
     # We expect low variance for a circle, but hard to set a strict threshold
-    assert radius_variance < 0.1 * (final_L / (2 * np.pi))**2, "Knot does not resemble a circle (high radius variance)" 
+    final_radius_approx = final_L / (2 * np.pi) if final_L > 0 else 0.1
+    assert radius_variance < 0.1 * final_radius_approx**2, "Knot does not resemble a circle (high radius variance)"
+
+    # --- Save Outputs ---
+    print(f"\nSaving final state for untangling test...")
+    try:
+        write_knot_to_file(knot, final_coords_filename)
+        plot_knot(knot, title="Untangling Test - Final State", save_path=final_plot_filename, show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error during output saving for untangling test: {e}") 

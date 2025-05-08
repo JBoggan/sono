@@ -19,6 +19,9 @@ from sono_project.knot_properties import (
     calculate_crossing_number_xy,
     calculate_writhe
 )
+# Import I/O and visualization
+from sono_project.io_utils import write_knot_to_file
+from sono_project.visualization import plot_knot
 
 # --- Helper Functions ---
 # For simplicity, copy run_sono_simplified here. Refactor later.
@@ -43,7 +46,7 @@ def run_sono_simplified(
     print(f"\nRunning SONO ({test_name}) for {max_iterations} iterations...")
     print(f"Initial state: {knot}, L/D={knot.length/knot.diameter:.2f}")
     initial_L = knot.length
-    min_L_over_D = knot.length / knot.diameter
+    min_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
 
     for iteration in range(max_iterations):
         recalc_neighbors = False
@@ -64,13 +67,18 @@ def run_sono_simplified(
             tightened_this_iter = True
 
         if enable_normalize and iteration > 0 and iteration % normalize_freq == 0:
+            # Recalculate skipped based on current leash length *before* normalizing
+            # (as normalization changes leash length immediately)
+            l_pre_norm = knot.target_leash_length
+            skipped_pre_norm = max(1, int(round(np.pi * knot.diameter / (2 * l_pre_norm)))) if l_pre_norm > 1e-9 else skipped
+
             normalize_node_number(knot, target_density=normalize_density)
-            # Need to recalculate neighbors immediately after normalization
-            neighbours_list = find_neighbours(knot, skipped, epsilon)
-            recalc_neighbors = True
+            # Use the skipped value calculated *before* normalization for the immediate neighbour check
+            neighbours_list = find_neighbours(knot, skipped_pre_norm, epsilon)
+            recalc_neighbors = True # Indicate normalization happened
 
         # Track minimum L/D achieved
-        current_L_over_D = knot.length / knot.diameter
+        current_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
         min_L_over_D = min(min_L_over_D, current_L_over_D)
 
         if iteration % (max_iterations // 10) == 0 or iteration == max_iterations - 1:
@@ -79,7 +87,7 @@ def run_sono_simplified(
              action = "Tightened" if tightened_this_iter else ("Normalized" if recalc_neighbors else "Relaxed")
              print(f"Iter {iteration:6d}: L/D={current_L_over_D:.3f} (min={min_L_over_D:.3f}), N={knot.num_nodes}, AvgOv={avg_ov:.2e}, ACN={acn:.1f}, Wr={wr:.3f}, Action: {action}")
 
-    final_lambda = knot.length / knot.diameter
+    final_lambda = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
     print(f"Final state: {knot}, L/D={final_lambda:.3f} (min={min_L_over_D:.3f})")
 
 # --- Perko Pair Initial Coordinates ---
@@ -142,26 +150,57 @@ def test_perko_pair_convergence():
     to the same final state (same L/D, ACN, Wr).
     Ref: Paper Section 4.3, Fig 4.
     """
-    knot_diameter = 0.6 # Needs careful selection relative to coordinates
-    num_points_target = 100 # Target for normalization
+    # --- Test Setup ---
+    output_dir = os.path.join(project_root, "test_outputs")
+    os.makedirs(output_dir, exist_ok=True)
+    # Define output filenames for both knots
+    filenames_A = {
+        "initial_coords": os.path.join(output_dir, "perkoA_initial_coords.txt"),
+        "initial_plot": os.path.join(output_dir, "perkoA_initial_plot.png"),
+        "final_coords": os.path.join(output_dir, "perkoA_final_coords.txt"),
+        "final_plot": os.path.join(output_dir, "perkoA_final_plot.png")
+    }
+    filenames_B = {
+        "initial_coords": os.path.join(output_dir, "perkoB_initial_coords.txt"),
+        "initial_plot": os.path.join(output_dir, "perkoB_initial_plot.png"),
+        "final_coords": os.path.join(output_dir, "perkoB_final_coords.txt"),
+        "final_plot": os.path.join(output_dir, "perkoB_final_plot.png")
+    }
 
-    # Initialize Knot A
+    knot_diameter = 0.6
+    num_points_target_density = 10.0 # Use density directly
+
+    # --- Initialize Knot A ---
     knot_A = Knot(coordinates=coords_A, diameter=knot_diameter)
-    normalize_node_number(knot_A, target_density=num_points_target / (knot_A.length / knot_A.diameter))
-    print("\n--- Initializing Perko Knot A (10_161 form) ---")
+    print("\n--- Initializing Perko Knot A (10_161 form) --- Pre-Normalization ---")
     print(knot_A)
-    l_avg_A = knot_A.length / knot_A.num_nodes
-    skipped_A = max(1, int(round(np.pi * knot_A.diameter / (2 * l_avg_A))))
+    normalize_node_number(knot_A, target_density=num_points_target_density)
+    print("--- Initializing Perko Knot A --- Post-Normalization ---")
+    print(knot_A)
+    try:
+        write_knot_to_file(knot_A, filenames_A["initial_coords"])
+        plot_knot(knot_A, title="Perko A - Initial State", save_path=filenames_A["initial_plot"], show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error saving initial state for Knot A: {e}")
+    l_avg_A = knot_A.length / knot_A.num_nodes if knot_A.num_nodes > 0 else 0
+    skipped_A = max(1, int(round(np.pi * knot_A.diameter / (2 * l_avg_A)))) if l_avg_A > 1e-9 else 3
 
-    # Initialize Knot B
+    # --- Initialize Knot B ---
     knot_B = Knot(coordinates=coords_B, diameter=knot_diameter)
-    normalize_node_number(knot_B, target_density=num_points_target / (knot_B.length / knot_B.diameter))
-    print("\n--- Initializing Perko Knot B (10_162 form) ---")
+    print("\n--- Initializing Perko Knot B (10_162 form) --- Pre-Normalization ---")
     print(knot_B)
-    l_avg_B = knot_B.length / knot_B.num_nodes
-    skipped_B = max(1, int(round(np.pi * knot_B.diameter / (2 * l_avg_B))))
+    normalize_node_number(knot_B, target_density=num_points_target_density)
+    print("--- Initializing Perko Knot B --- Post-Normalization ---")
+    print(knot_B)
+    try:
+        write_knot_to_file(knot_B, filenames_B["initial_coords"])
+        plot_knot(knot_B, title="Perko B - Initial State", save_path=filenames_B["initial_plot"], show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error saving initial state for Knot B: {e}")
+    l_avg_B = knot_B.length / knot_B.num_nodes if knot_B.num_nodes > 0 else 0
+    skipped_B = max(1, int(round(np.pi * knot_B.diameter / (2 * l_avg_B)))) if l_avg_B > 1e-9 else 3
 
-    # Ensure initial ACN/Wr are somewhat different if possible (depends on projection)
+    # --- Initial ACN/Wr Calculation ---
     acn_A_init = calculate_crossing_number_xy(knot_A)
     wr_A_init = calculate_writhe(knot_A)
     acn_B_init = calculate_crossing_number_xy(knot_B)
@@ -169,7 +208,7 @@ def test_perko_pair_convergence():
     print(f"Knot A Initial: ACN={acn_A_init:.1f}, Wr={wr_A_init:.3f}")
     print(f"Knot B Initial: ACN={acn_B_init:.1f}, Wr={wr_B_init:.3f}")
 
-    # Define common SONO parameters
+    # --- Define SONO parameters ---
     sono_params = {
         "max_iterations": 15000, # May need more iterations
         "num_of_it": 100,
@@ -181,37 +220,41 @@ def test_perko_pair_convergence():
         "shift_freq": 10,
         "enable_normalize": True, # Normalization helps compare final states
         "normalize_freq": 2000,
-        "normalize_density": 10.0 
+        "normalize_density": num_points_target_density
     }
 
-    # Run SONO on Knot A
+    # --- Run SONO ---
     print("\n--- Running SONO on Knot A --- ")
     run_sono_simplified(knot_A, skipped=skipped_A, **sono_params)
-
-    # Run SONO on Knot B
     print("\n--- Running SONO on Knot B --- ")
     run_sono_simplified(knot_B, skipped=skipped_B, **sono_params)
 
-    # --- Assertions --- 
+    # --- Save Final States & Assertions ---
+    print("\n--- Saving Final States & Comparing ---")
+    try:
+        write_knot_to_file(knot_A, filenames_A["final_coords"])
+        plot_knot(knot_A, title="Perko A - Final State", save_path=filenames_A["final_plot"], show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error saving final state for Knot A: {e}")
+    try:
+        write_knot_to_file(knot_B, filenames_B["final_coords"])
+        plot_knot(knot_B, title="Perko B - Final State", save_path=filenames_B["final_plot"], show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error saving final state for Knot B: {e}")
+
+    # --- Final Comparison ---
     final_L_A = knot_A.length
     final_D_A = knot_A.diameter
     final_acn_A = calculate_crossing_number_xy(knot_A)
     final_wr_A = calculate_writhe(knot_A)
-
     final_L_B = knot_B.length
     final_D_B = knot_B.diameter
     final_acn_B = calculate_crossing_number_xy(knot_B)
     final_wr_B = calculate_writhe(knot_B)
-
-    print("\n--- Final Comparison ---")
     print(f"Knot A Final: L/D={final_L_A/final_D_A:.3f}, ACN={final_acn_A:.1f}, Wr={final_wr_A:.3f}, N={knot_A.num_nodes}")
     print(f"Knot B Final: L/D={final_L_B/final_D_B:.3f}, ACN={final_acn_B:.1f}, Wr={final_wr_B:.3f}, N={knot_B.num_nodes}")
-
-    # Check if the key scalar invariants converged to the same values
-    # Use np.isclose for floating point comparison with tolerance
-    atol = 1e-2 # Absolute tolerance for L/D and Wr
-    rtol = 1e-2 # Relative tolerance
-
+    atol = 1e-2
+    rtol = 1e-2
     assert np.isclose(final_L_A / final_D_A, final_L_B / final_D_B, rtol=rtol, atol=atol), \
            f"Final L/D values differ significantly: {final_L_A/final_D_A:.4f} vs {final_L_B/final_D_B:.4f}"
     assert np.isclose(final_acn_A, final_acn_B, atol=0.1), \

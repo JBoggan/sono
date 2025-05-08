@@ -19,6 +19,9 @@ from sono_project.knot_properties import (
     calculate_crossing_number_xy,
     calculate_writhe
 )
+# Import I/O and visualization
+from sono_project.io_utils import write_knot_to_file
+from sono_project.visualization import plot_knot
 
 # --- Helper Functions ---
 # For simplicity, copy run_sono_simplified here. Refactor later.
@@ -46,7 +49,7 @@ def run_sono_simplified(
     test_name = "Symmetry Breaking Test" # Customize print
     print(f"\nRunning SONO ({test_name}) for {max_iterations} iterations...")
     print(f"Initial state: {knot}, L/D={knot.length/knot.diameter:.2f}")
-    min_L_over_D = knot.length / knot.diameter
+    min_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
     original_delta = delta
     delta_end_iter = -1
 
@@ -67,8 +70,13 @@ def run_sono_simplified(
         # -------------------------------------------------
 
         recalc_neighbors = False
+        # Recalculate skipped dynamically if necessary *before* FN call
+        # (Assuming dynamic skipping isn't explicitly controlled by args here)
+        l_curr = knot.target_leash_length
+        current_skipped = max(1, int(round(np.pi * knot.diameter / (2 * l_curr)))) if l_curr > 1e-9 else skipped
+
         if iteration % num_of_it == 0:
-            neighbours_list = find_neighbours(knot, skipped, epsilon)
+            neighbours_list = find_neighbours(knot, current_skipped, epsilon)
 
         min_l, max_l = control_leashes(knot)
         # Use the potentially modified delta for this iteration
@@ -85,11 +93,14 @@ def run_sono_simplified(
             tightened_this_iter = True
 
         if enable_normalize and iteration > 0 and iteration % normalize_freq == 0:
+            # Need to handle skipped update around normalization properly if used
+            l_pre_norm = knot.target_leash_length
+            skipped_pre_norm = max(1, int(round(np.pi * knot.diameter / (2 * l_pre_norm)))) if l_pre_norm > 1e-9 else current_skipped
             normalize_node_number(knot, target_density=normalize_density)
-            neighbours_list = find_neighbours(knot, skipped, epsilon)
+            neighbours_list = find_neighbours(knot, skipped_pre_norm, epsilon)
             recalc_neighbors = True
 
-        current_L_over_D = knot.length / knot.diameter
+        current_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
         min_L_over_D = min(min_L_over_D, current_L_over_D)
 
         if iteration % (max_iterations // 20) == 0 or iteration == max_iterations - 1:
@@ -98,7 +109,7 @@ def run_sono_simplified(
              action = "Tightened" if tightened_this_iter else ("Normalized" if recalc_neighbors else ("DeltaUp" if current_delta != original_delta else "Relaxed"))
              print(f"Iter {iteration:6d}: L/D={current_L_over_D:.3f} (min={min_L_over_D:.3f}), N={knot.num_nodes}, AvgOv={avg_ov:.2e}, ACN={acn:.1f}, Wr={wr:.3f}, Action: {action}")
 
-    final_lambda = knot.length / knot.diameter
+    final_lambda = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
     print(f"Final state: {knot}, L/D={final_lambda:.3f} (min={min_L_over_D:.3f})")
     return min_L_over_D # Return the minimum L/D reached during the run
 
@@ -118,30 +129,42 @@ def test_t25_symmetry_breaking():
     Ref: Paper Section 5, Fig 5.
     Symmetric L/D ~ 24.2, Asymmetric L/D ~ 23.5
     """
+    # --- Test Setup ---
+    output_dir = os.path.join(project_root, "test_outputs")
+    initial_coords_filename = os.path.join(output_dir, "symbreak_initial_coords.txt")
+    initial_plot_filename = os.path.join(output_dir, "symbreak_initial_plot.png")
+    final_coords_filename = os.path.join(output_dir, "symbreak_final_coords.txt")
+    final_plot_filename = os.path.join(output_dir, "symbreak_final_plot.png")
+    os.makedirs(output_dir, exist_ok=True)
+
     p, q = 2, 5 # T(2,5) -> 5_1 knot
     R_major = 3.0
     r_minor = 1.0
     n_points = 150 # Use a reasonable number of points
     knot_diameter = 0.5
-
     initial_coords = generate_torus_knot_coords(p, q, R_major, r_minor, n_points)
-
     knot = Knot(coordinates=initial_coords, diameter=knot_diameter)
+
+    # --- Save Initial State ---
+    print(f"\nSaving initial state for Symmetry Breaking test...")
+    try:
+        write_knot_to_file(knot, initial_coords_filename)
+        plot_knot(knot, title=f"Symmetry Breaking Test - Initial State T({p},{q})", save_path=initial_plot_filename, show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error during initial output saving for Symmetry Breaking test: {e}")
 
     initial_acn = calculate_crossing_number_xy(knot)
     initial_wr = calculate_writhe(knot)
-    initial_L_over_D = knot.length / knot.diameter
+    initial_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
     print(f"\nSymmetry Breaking Test: Initial T({p},{q}) N={knot.num_nodes}, D={knot.diameter}")
     print(f"Initial L/D={initial_L_over_D:.3f}, ACN(xy)={initial_acn:.1f}, Wr={initial_wr:.3f}")
 
-    # Assert initial properties are roughly correct for 5_1
     assert initial_acn >= 4.9, f"Initial ACN(xy) {initial_acn} is too low for a 5_1 knot"
-    # Writhe for T(2,5) should be non-zero
     assert abs(initial_wr) > 0.1, f"Initial Writhe {initial_wr} is too low for T(2,5)"
 
     l_avg = knot.length / knot.num_nodes
-    skipped_val = max(1, int(round(np.pi * knot.diameter / (2 * l_avg))))
-    print(f"Using skipped={skipped_val}")
+    skipped_val = max(1, int(round(np.pi * knot.diameter / (2 * l_avg)))) if l_avg > 1e-9 else 3
+    print(f"Using initial skipped={skipped_val}")
 
     # Parameters for the run
     # Run for a decent number of iterations, enable shifts, and try increasing delta
@@ -157,7 +180,7 @@ def test_t25_symmetry_breaking():
         overlap_threshold=1e-5,
         delta=0.0001, # Start with very small delta as per paper (Fig 5 used 0.00001!)
         epsilon=0.1 * knot_diameter,
-        skipped=skipped_val,
+        skipped=skipped_val, # Pass the initial value, helper recalculates if needed
         enable_shift_nodes=True,
         shift_freq=10,
         enable_normalize=False, # Keep N constant for this specific test for now
@@ -169,13 +192,12 @@ def test_t25_symmetry_breaking():
     # Assertions
     final_acn = calculate_crossing_number_xy(knot)
     final_wr = calculate_writhe(knot)
-    final_L_over_D = knot.length / knot.diameter
+    final_L_over_D = knot.length / knot.diameter if knot.diameter > 0 else float('inf')
 
     print(f"Final L/D={final_L_over_D:.3f} (Min achieved={min_ld_achieved:.3f}), ACN(xy)={final_acn:.1f}, Wr={final_wr:.3f}")
 
-    # Check topology is still 5_1
     assert final_acn >= 4.9, f"Final ACN(xy) {final_acn} is too low for a 5_1 knot"
-    assert abs(initial_wr) > 0.1, f"Final Writhe {initial_wr} is too low for T(2,5)"
+    assert abs(final_wr) > 0.1, f"Final Writhe {final_wr} is too low for T(2,5)"
 
     # Check if L/D dropped below the symmetric threshold (24.2) towards the asymmetric (23.5)
     # We check the *minimum* value reached during the run, as the final state might relax slightly
@@ -186,5 +208,13 @@ def test_t25_symmetry_breaking():
     # Check if it got reasonably close to the target asymmetric value
     assert min_ld_achieved < target_asymmetric * 1.05, \
            f"Minimum L/D ({min_ld_achieved:.3f}) did not reach close to the target asymmetric value ({target_asymmetric})"
+
+    # --- Save Outputs ---
+    print(f"\nSaving final state for Symmetry Breaking test...")
+    try:
+        write_knot_to_file(knot, final_coords_filename)
+        plot_knot(knot, title="Symmetry Breaking Test - Final State", save_path=final_plot_filename, show_plot=False)
+    except Exception as e:
+        pytest.fail(f"Error during output saving for Symmetry Breaking test: {e}")
 
     print("\nSymmetry Breaking Test Passed: Minimum L/D dropped below symmetric threshold.") 

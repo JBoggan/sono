@@ -19,6 +19,8 @@ from knot_properties import (
 )
 # Import the new I/O functions
 from io_utils import read_knot_from_file, write_knot_to_file
+# Import the visualization function
+from visualization import plot_knot
 
 # --- Remove Placeholder I/O --- 
 # def read_knot_from_file(filepath: str) -> np.ndarray:
@@ -51,6 +53,10 @@ def main():
     parser.add_argument("--normalize_density", type=float, default=10.0, help="Target density for NormalizeNodeNumber (NNN).")
     parser.add_argument("--prop_calc_freq", type=int, default=100, help="Frequency (iterations) to calculate and print ACN/Wr.")
 
+    # Visualization Parameters
+    parser.add_argument("--visualize", action="store_true", help="Show a 3D plot of the final knot conformation.")
+    parser.add_argument("--plot_save_path", type=str, default=None, help="Path to save the final knot plot image (e.g., final_knot.png).")
+
     args = parser.parse_args()
 
     # --- Initialization ---
@@ -75,31 +81,33 @@ def main():
 
     print(f"Initial Knot State: {knot}")
 
-    # Default skipped value calculation (Sec 3.2)
-    if args.skipped is None:
-        if knot.target_leash_length > 1e-9:
-            args.skipped = round(np.pi * knot.diameter / (2 * knot.target_leash_length))
-            print(f"Calculated default skipped = {args.skipped}")
-        else:
-            args.skipped = 3 # Default if leash length is zero
-            print(f"Warning: Zero leash length, using default skipped = {args.skipped}")
-    else:
-         print(f"Using specified skipped = {args.skipped}")
-
     neighbours_list = []
     last_fn_time = time.time()
     start_time = time.time()
+
+    # Calculate skipped dynamically if not provided
+    use_dynamic_skipped = (args.skipped is None)
+    current_skipped = args.skipped # Use provided value if given
 
     # --- Main Loop (Sec 3.5) ---
     print("\nStarting main SONO loop...")
     current_acn = 0.0
     current_wr = 0.0
     for iteration in range(args.max_iterations):
+        # Recalculate skipped dynamically if needed, before finding neighbours
+        if use_dynamic_skipped:
+            if knot.target_leash_length > 1e-9:
+                current_skipped = max(1, round(np.pi * knot.diameter / (2 * knot.target_leash_length)))
+            else:
+                current_skipped = knot.num_nodes // 2 # Fallback if leash length is zero
+
         # 2. Find Neighbours (periodically)
         if iteration % args.num_of_it == 0:
-            print(f"\nIter {iteration}: Finding neighbours...", end=" ")
+            fn_info = f"(skipped={current_skipped})"
+            print(f"\nIter {iteration}: Finding neighbours {fn_info}...", end=" ")
             t_fn_start = time.time()
-            neighbours_list = find_neighbours(knot, args.skipped, args.epsilon)
+            # Use the potentially updated current_skipped value
+            neighbours_list = find_neighbours(knot, current_skipped, args.epsilon)
             t_fn_end = time.time()
             num_neighbours = sum(len(nl) for nl in neighbours_list) // 2
             print(f"Found {num_neighbours} neighbour pairs in {t_fn_end - t_fn_start:.3f}s")
@@ -125,14 +133,24 @@ def main():
             # Diameter D remains unchanged
 
         # Optional: Normalize Node Number (Sec 3.4)
-        if args.normalize_freq > 0 and iteration % args.normalize_freq == 0:
+        if args.normalize_freq > 0 and iteration % args.normalize_freq == 0 and iteration > 0:
+             print(f"\nIter {iteration}: Normalizing nodes (Target density={args.normalize_density})...")
              normalize_node_number(knot, target_density=args.normalize_density)
-             # After normalization, neighbours are likely invalid, force recalculation
-             print(f"Iter {iteration}: Normalizing nodes. Recalculating neighbours next iteration.")
-             # Ensure FN runs next loop by adjusting iteration modulo
-             if iteration % args.num_of_it != 0:
-                 # This logic is tricky, maybe simpler to just always run FN after NNN
-                 neighbours_list = find_neighbours(knot, args.skipped, args.epsilon)
+             # Knot object now has updated N, L, and target_leash_length
+
+             # Recalculate skipped *based on the new leash length* if using dynamic skipping
+             if use_dynamic_skipped:
+                 if knot.target_leash_length > 1e-9:
+                     current_skipped = max(1, round(np.pi * knot.diameter / (2 * knot.target_leash_length)))
+                 else:
+                     current_skipped = knot.num_nodes // 2 # Fallback
+                 print(f"Iter {iteration}: Updated skipped to {current_skipped} after normalization.")
+
+             # ALWAYS recalculate neighbours immediately after changing node count, using the updated skipped value
+             fn_info = f"(skipped={current_skipped})"
+             print(f"Iter {iteration}: Recalculating neighbours after normalization {fn_info} (N={knot.num_nodes})...")
+             neighbours_list = find_neighbours(knot, current_skipped, args.epsilon)
+             print(f"Iter {iteration}: Found {sum(len(nl) for nl in neighbours_list) // 2} neighbour pairs.")
 
         # Calculate and Print progress periodically
         if iteration % args.prop_calc_freq == 0 or iteration == args.max_iterations - 1:
@@ -161,12 +179,25 @@ def main():
     print(f"Final ACN(xy): {final_acn:.1f}")
     print(f"Final Writhe: {final_wr:.4f}")
 
-    # Use the imported write_knot_to_file function with error handling
+    # Save final coordinates
     try:
         write_knot_to_file(knot, args.output_file)
     except IOError as e:
         print(f"Error writing output file: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # Plot final knot if requested
+    if args.visualize or args.plot_save_path:
+        try:
+            plot_knot(
+                knot,
+                title=f"Final Conformation (L/D={lambda_final:.3f})",
+                save_path=args.plot_save_path,
+                show_plot=args.visualize # Only show if --visualize is set
+            )
+        except Exception as e:
+            print(f"Error during plotting: {e}", file=sys.stderr)
+            # Don't necessarily exit, simulation already finished
 
 if __name__ == "__main__":
     main() 
