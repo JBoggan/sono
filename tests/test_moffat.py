@@ -86,22 +86,22 @@ def generate_torus_knot_coords(p: int, q: int, R: float, r: float, num_points: i
     z = r * np.sin(p * t / q)
     return np.stack([x, y, z], axis=-1)
 
-def test_moffat_t32_to_t23():
+def test_moffat_start_t23_to_t32_hypothesis():
     """
-    Test the behavior of the SONO algorithm when starting with a T(2,3) trefoil.
-    The paper's Fig 3 shows T(3,2) relaxing to T(2,3). This test starts with T(2,3)
-    to observe its stability or any transformations (e.g., towards T(3,2)).
-    We expect ACN to stay ~3, Writhe ~ +/-3, and L/D to ideally decrease or remain stable.
+    Test SONO behavior starting with T(2,3), hypothesizing it might relax
+    towards a T(3,2)-like form due to potential nomenclature differences
+    or relative stability of generated knots. Paper Fig 3 shows T(3,2) -> T(2,3).
+    We expect ACN to stay ~3, Writhe ~ +/-3, and L/D to ideally decrease.
     """
     # --- Test Setup ---
     output_dir = os.path.join(project_root, "test_outputs")
-    initial_coords_filename = os.path.join(output_dir, "moffat_initial_coords.txt")
-    initial_plot_filename = os.path.join(output_dir, "moffat_initial_plot.png")
-    final_coords_filename = os.path.join(output_dir, "moffat_final_coords.txt")
-    final_plot_filename = os.path.join(output_dir, "moffat_final_plot.png")
+    initial_coords_filename = os.path.join(output_dir, "moffat_t23_initial_coords.txt")
+    initial_plot_filename = os.path.join(output_dir, "moffat_t23_initial_plot.png")
+    final_coords_filename = os.path.join(output_dir, "moffat_t23_to_t32_final_coords.txt")
+    final_plot_filename = os.path.join(output_dir, "moffat_t23_to_t32_final_plot.png")
     os.makedirs(output_dir, exist_ok=True)
 
-    p, q = 3, 2
+    p, q = 2, 3
     R_major = 3.0
     r_minor = 1.0
     n_points = 100
@@ -110,7 +110,7 @@ def test_moffat_t32_to_t23():
     knot = Knot(coordinates=initial_coords, diameter=knot_diameter)
 
     # --- Save Initial State ---
-    print(f"\nSaving initial state for Moffat test...")
+    print(f"\nSaving initial state for Moffat test (starting T({p},{q}) hypothesis)...")
     try:
         write_knot_to_file(knot, initial_coords_filename)
         plot_knot(knot, title=f"Moffat Test - Initial State T({p},{q})", save_path=initial_plot_filename, show_plot=False)
@@ -133,7 +133,7 @@ def test_moffat_t32_to_t23():
     # --- Run Simulation ---
     run_sono_simplified(
         knot,
-        max_iterations=200000, # Increased iterations from 10000
+        max_iterations=50000, # Increased iterations from 10000
         num_of_it=100,      # Less frequent FN
         scaling_factor=0.999, # Slower scaling
         overlap_threshold=1e-5,
@@ -154,10 +154,10 @@ def test_moffat_t32_to_t23():
     assert final_L_over_D < initial_L_over_D * 0.95, f"L/D did not decrease significantly ({initial_L_over_D:.3f} -> {final_L_over_D:.3f})"
 
     # --- Save Outputs ---
-    print(f"\nSaving final state for Moffat test...")
+    print(f"\nSaving final state for Moffat test (started T({p},{q}) hypothesis)...")
     try:
         write_knot_to_file(knot, final_coords_filename)
-        plot_knot(knot, title="Moffat Test - Final State", save_path=final_plot_filename, show_plot=False)
+        plot_knot(knot, title=f"Moffat Test - Final State (started T({p},{q}))", save_path=final_plot_filename, show_plot=False)
     except Exception as e:
         pytest.fail(f"Error during output saving for Moffat test: {e}")
 
