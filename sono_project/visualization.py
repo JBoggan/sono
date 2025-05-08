@@ -96,7 +96,7 @@ def plot_knot(knot: Knot, title: str = "Knot Conformation", save_path: str = Non
 
     # Plot spheres for each node
     if n > 0 and knot.diameter > 1e-6: # Check for valid diameter
-        sphere_r = knot.diameter
+        sphere_r = knot.diameter / 4.0 # Corrected: radius is half the diameter
         u_sphere = np.linspace(0, 2 * np.pi, 12) # Azimuthal
         v_sphere = np.linspace(0, np.pi, 7)    # Polar
         sphere_alpha = 0.7
