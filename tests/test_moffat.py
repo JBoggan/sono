@@ -88,10 +88,10 @@ def generate_torus_knot_coords(p: int, q: int, R: float, r: float, num_points: i
 
 def test_moffat_t32_to_t23():
     """
-    Test if SONO relaxes a T(3,2) trefoil configuration towards the T(2,3) form.
-    Ref: Paper Section 4.2, Fig 3.
-    We expect the ACN to stay ~3, Writhe ~ +/-3, and L/D to decrease.
-    The paper shows fluctuations, potentially requiring ShiftNodes.
+    Test the behavior of the SONO algorithm when starting with a T(2,3) trefoil.
+    The paper's Fig 3 shows T(3,2) relaxing to T(2,3). This test starts with T(2,3)
+    to observe its stability or any transformations (e.g., towards T(3,2)).
+    We expect ACN to stay ~3, Writhe ~ +/-3, and L/D to ideally decrease or remain stable.
     """
     # --- Test Setup ---
     output_dir = os.path.join(project_root, "test_outputs")
@@ -133,7 +133,7 @@ def test_moffat_t32_to_t23():
     # --- Run Simulation ---
     run_sono_simplified(
         knot,
-        max_iterations=10000, # Increased iterations
+        max_iterations=200000, # Increased iterations from 10000
         num_of_it=100,      # Less frequent FN
         scaling_factor=0.999, # Slower scaling
         overlap_threshold=1e-5,
